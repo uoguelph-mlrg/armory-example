@@ -14,7 +14,7 @@
         "use_label": false
     },
     "dataset": {
-        "batch_size": 64,
+        "batch_size": 32,
         "framework": "numpy",
         "module": "armory.data.datasets",
         "name": "resisc45"
@@ -29,16 +29,16 @@
         ]
     },
     "model": {
-        "fit": false,
+        "fit": true,
         "fit_kwargs": {
-            "nb_epochs": 1
+            "nb_epochs": 11
         },
         "model_kwargs": {
             "pretrained" : false
         },
         "module": "uog_models.pytorch.densenet121_resisc45",
         "name": "get_art_model",
-        "weights_file": "uog_models_pytorch_densenet121_resisc45_epochs1.pth.model",
+        "weights_file": "uog_models_pytorch_densenet121_resisc45_epochs10.pth.model",
         "wrapper_kwargs": {}
     },
     "scenario": {

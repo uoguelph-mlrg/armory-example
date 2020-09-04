@@ -15,6 +15,7 @@ from torchvision import models
 from tensorflow.keras.preprocessing import image
 
 # AngusG for loading weights
+import os
 import os.path as osp
 from armory import paths
 #from armory.data.utils import maybe_download_weights_from_s3
@@ -64,8 +65,8 @@ def preprocessing_fn(x: np.ndarray) -> np.ndarray:
 # NOTE: PyTorchClassifier expects numpy input, not torch.Tensor input
 def get_art_model(model_kwargs, wrapper_kwargs, weights_file=None):
 
-    # throwing permission error accessing ~/.cache when pretrained=True/False
-    # model = torch.hub.load('pytorch/vision:v0.6.0', 'densenet121', pretrained=False)
+    # set TORCH_HOME to prevent permission error accessing ~/.cache when pretrained=True
+    os.environ['TORCH_HOME'] = paths.runtime_paths().saved_model_dir
     model = models.densenet121(**model_kwargs)
 
     # manually implement Keras 'include_top=False' option
@@ -83,11 +84,11 @@ def get_art_model(model_kwargs, wrapper_kwargs, weights_file=None):
             osp.join(paths.runtime_paths().saved_model_dir, weights_file), map_location=DEVICE)
         model_newtop.load_state_dict(checkpoint)
 
-    #mean, std = mean_std()
     wrapped_model = PyTorchClassifier(
         model_newtop,
         loss=torch.nn.CrossEntropyLoss(),
-        optimizer=torch.optim.Adam(model.parameters(), lr=0.003),
+        optimizer=torch.optim.Adam(
+            model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-07, amsgrad=False),
         input_shape=(3, 224, 224),
         nb_classes=num_classes,
         **wrapper_kwargs,

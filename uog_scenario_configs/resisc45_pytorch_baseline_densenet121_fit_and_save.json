@@ -14,7 +14,7 @@
         "use_label": false
     },
     "dataset": {
-        "batch_size": 64,
+        "batch_size": 32,
         "framework": "numpy",
         "module": "armory.data.datasets",
         "name": "resisc45"
@@ -34,7 +34,7 @@
             "nb_epochs": 10
         },
         "model_kwargs": {
-            "pretrained" : false
+            "pretrained" : true
         },
         "module": "uog_models.pytorch.densenet121_resisc45",
         "name": "get_art_model",
