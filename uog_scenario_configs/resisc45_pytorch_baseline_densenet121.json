@@ -41,7 +41,7 @@
     },
     "scenario": {
         "kwargs": {},
-        "module": "armory.scenarios.image_classification",
+        "module": "armory.scenarios.image_classification_save_weights",
         "name": "ImageClassificationTask"
     },
     "sysconfig": {
