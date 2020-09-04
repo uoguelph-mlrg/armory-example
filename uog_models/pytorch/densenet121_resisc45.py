@@ -14,36 +14,20 @@ from torchvision import models
 
 from tensorflow.keras.preprocessing import image
 
-from armory.data.utils import maybe_download_weights_from_s3
-
+# AngusG for loading weights
+import os.path as osp
+from armory import paths
+#from armory.data.utils import maybe_download_weights_from_s3
 
 logger = logging.getLogger(__name__)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-#RESISC_MEANS = [0.485, 0.456, 0.406]
-#RESISC_STDEV = [0.229, 0.224, 0.225]
 
 RESISC_MEANS = [0.36386173189316956, 0.38118692953271804, 0.33867067558870334]
 RESISC_STDEV = [0.20350874, 0.18531173, 0.18472934]
 
 num_classes = 45
 
-'''
-def preprocessing_fn(img):
-    """
-    Standardize, then normalize RESISC images
-    """
-    # Standardize images to [0, 1]
-    img = img.astype(np.float32) / 255.0
-
-    # Normalize images RESISC means
-    for i, (mean, std) in enumerate(zip(RESISC_MEANS, RESISC_STDEV)):
-        img[i] -= mean
-        img[i] /= std
-
-    return img
-'''
 
 def mean_std():
     resisc_mean = np.array(
@@ -79,11 +63,10 @@ def preprocessing_fn(x: np.ndarray) -> np.ndarray:
 
 # NOTE: PyTorchClassifier expects numpy input, not torch.Tensor input
 def get_art_model(model_kwargs, wrapper_kwargs, weights_file=None):
-    #model = models.resnet50(**model_kwargs)
 
     # throwing permission error accessing ~/.cache when pretrained=True/False
-    #model = torch.hub.load('pytorch/vision:v0.6.0', 'densenet121', pretrained=False)
-    model = models.densenet121(pretrained=False)
+    # model = torch.hub.load('pytorch/vision:v0.6.0', 'densenet121', pretrained=False)
+    model = models.densenet121(**model_kwargs)
 
     # manually implement Keras 'include_top=False' option
     model_newtop = nn.Sequential(
@@ -95,10 +78,10 @@ def get_art_model(model_kwargs, wrapper_kwargs, weights_file=None):
     ).to(DEVICE)
 
     if weights_file:
-        pass
         #filepath = maybe_download_weights_from_s3(weights_file)
-        #checkpoint = torch.load(filepath, map_location=DEVICE)
-        #model.load_state_dict(checkpoint)
+        checkpoint = torch.load(
+            osp.join(paths.runtime_paths().saved_model_dir, weights_file), map_location=DEVICE)
+        model_newtop.load_state_dict(checkpoint)
 
     #mean, std = mean_std()
     wrapped_model = PyTorchClassifier(

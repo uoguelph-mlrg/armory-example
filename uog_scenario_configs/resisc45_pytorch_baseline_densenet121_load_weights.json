@@ -1,0 +1,57 @@
+{
+    "_description": "Resisc45 image classification. Load previously saved weights. Originally contributed by MITRE Corporation and adapted by AngusG",
+    "adhoc": null,
+    "attack": {
+        "knowledge": "white",
+        "kwargs": {
+            "adversarial_key": "adversarial_univpatch",
+            "batch_size": 1,
+            "description": "'adversarial_key' can be 'adversarial_univperturbation' or 'adversarial_univpatch'"
+        },
+        "module": "armory.data.adversarial_datasets",
+        "name": "resisc45_adversarial_224x224",
+        "type": "preloaded",
+        "use_label": false
+    },
+    "dataset": {
+        "batch_size": 64,
+        "framework": "numpy",
+        "module": "armory.data.datasets",
+        "name": "resisc45"
+    },
+    "defense": null,
+    "metric": {
+        "means": true,
+        "perturbation": "linf",
+        "record_metric_per_sample": false,
+        "task": [
+            "categorical_accuracy"
+        ]
+    },
+    "model": {
+        "fit": false,
+        "fit_kwargs": {
+            "nb_epochs": 1
+        },
+        "model_kwargs": {
+            "pretrained" : false
+        },
+        "module": "uog_models.pytorch.densenet121_resisc45",
+        "name": "get_art_model",
+        "weights_file": "uog_models_pytorch_densenet121_resisc45_epochs1.pth.model",
+        "wrapper_kwargs": {}
+    },
+    "scenario": {
+        "kwargs": {},
+        "module": "uog_scenarios.image_classification_save_weights",
+        "name": "ImageClassificationTask"
+    },
+    "sysconfig": {
+        "docker_image": "twosixarmory/pytorch:0.9.1",
+        "external_github_repo": null,
+        "gpus": "0",
+        "output_dir": null,
+        "output_filename": null,
+        "use_gpu": true
+    }
+}
