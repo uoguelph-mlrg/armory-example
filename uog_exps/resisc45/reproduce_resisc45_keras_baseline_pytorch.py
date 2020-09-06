@@ -33,7 +33,7 @@ import sys
 sys.path.append("../../")
 from uog_models.pytorch.densenet121_resisc45 import mean_std, preprocessing_fn, resisc_densenet121
 
-from train_utils import evaluate_loss_accuracy
+from train_utils import evaluate_loss_accuracy, save_checkpoint
 
 if __name__ == '__main__':
 
@@ -69,6 +69,8 @@ if __name__ == '__main__':
                         choices=model_names, help='model architecture: ' +
                         ' | '.join(model_names) + ' (default: fcn_resnet50)')
     
+    parser.add_argument('--opt', default='adam', choices=['adam', 'sgd'], help='optimizer')
+    
     parser.add_argument('--epochs', help='number of epochs to train for', type=int, default=1)
     
     #parser.add_argument('--drop', help='epoch to first drop the initial \ learning rate', type=int, default=30)
@@ -93,13 +95,14 @@ if __name__ == '__main__':
     gitcommit = subprocess.check_output(['git', 'rev-parse', '--short',
                                          'HEAD']).decode('ascii').strip()
 
+    arch = ''
+    arch += 'pretrained_' if pretrained else ''
     save_path = osp.join(
-        args.logdir,
-        args.arch + '/lr%.e/wd%.e/bs%d/ep%d/seed%d/%s' % (args.lr, args.wd,
-                                                          args.bs,
-                                                          args.epochs,
-                                                          args.seed,
-                                                          gitcommit))
+        args.logdir, arch + 'opt%s/lr%.e/wd%.e/bs%d/ep%d/seed%d/%s' % (args.opt, args.lr, args.wd,
+                                                                       args.bs,
+                                                                       args.epochs,
+                                                                       args.seed,
+                                                                       gitcommit))
     print('Saving model to ', save_path)
 
     ckpt_name = args.arch + '_lr%.e_wd%.e_bs%d_ep%d_seed%d' % (args.lr, args.wd, args.bs, args.epochs, args.seed)
@@ -137,7 +140,20 @@ if __name__ == '__main__':
             framework='numpy')
         
         return evaluate_loss_accuracy(net, ds_test, loss_fn, device)
+    
+    
+    def evaluate_train_metrics(net, loss_fn):
         
+        ds_train_one_epoch = datasets.resisc45(
+            split_type='train', epochs=1, 
+            batch_size=args.bs, 
+            dataset_dir=args.dataroot,
+            preprocessing_fn=preprocessing_fn,
+            framework='numpy')
+        
+        return evaluate_loss_accuracy(net, ds_train_one_epoch, loss_fn, device)
+        
+    
     def evaluate_adv_metrics(net, loss_fn):
     
         ds_adv = adversarial_datasets.resisc45_adversarial_224x224(
@@ -159,13 +175,14 @@ if __name__ == '__main__':
     model_kwargs = {"pretrained" : args.pretrained, "progress" : False}
     net = resisc_densenet121(model_kwargs).to(device)
 
-    #print(summary(net, input_size=(3, 224, 224)))
-
     # Prepare training procedure
-    optimizer = torch.optim.Adam(
-        net.parameters(), lr=args.lr, betas=(0.9, 0.999), eps=1e-07, amsgrad=False)
+    if args.opt == 'adam':
+        optimizer = torch.optim.Adam(
+            net.parameters(), lr=args.lr, betas=(0.9, 0.999), eps=1e-07, amsgrad=False, weight_decay=args.wd)
+    else:
+        optimizer = torch.optim.SGD(net.parameters(), lr=args.lr, weight_decay=args.wd)
 
-    loss_fn = nn.CrossEntropyLoss() # softmax cross entropyd
+    loss_fn = nn.CrossEntropyLoss() # softmax cross entropy
 
     if args.fp16:
         net, optimizer = amp.initialize(net, optimizer, opt_level='O3')
@@ -190,6 +207,8 @@ if __name__ == '__main__':
         global_step = 0
 
     epoch = 0
+    
+    # begin main loop
     for batch, (x, y) in enumerate(ds_train):
         
         # evaluate performance metrics once per epoch at the beginning of every epoch
@@ -202,10 +221,21 @@ if __name__ == '__main__':
                 (epoch, args.epochs, val_acc, val_loss, time.time() - eval_start_time)))
             writer.add_scalar('Loss/val', val_loss, epoch)
             writer.add_scalar('Acc/val', val_acc, epoch)
+            
             epoch += 1
-
-        epoch_start_time = time.time()
-        train_loss = 0
+            
+        # evaluate train metrics less often (every other epoch)
+        if batch % (len(ds_train) // (args.epochs // 2)) == 0:
+            
+            eval_start_time = time.time()
+            net.eval()
+            trn_acc, trn_loss = evaluate_train_metrics(net, loss_fn)
+            print('Epoch [%d/%d], trn acc %.4f, trn loss %.4f, took %.2f sec, ' % (
+                (epoch, args.epochs, trn_acc, trn_loss, time.time() - eval_start_time)))
+            writer.add_scalar('Loss/train', trn_loss, epoch)
+            writer.add_scalar('Acc/train', trn_acc, epoch)
+        
+        # end per-epoch statistics
         net.train()
         
         #lr = adjust_learning_rate(optimizer, epoch, args.drop, args.lr)
@@ -215,8 +245,10 @@ if __name__ == '__main__':
         x = torch.FloatTensor(x).to(device)
         y = torch.LongTensor(y).to(device)
         pred = net(x) # pre-softmax
+        correct += (pred.argmax(dim=1) == y).sum()
+        total += len(y)
         batch_loss = loss_fn(pred, y)
-        train_loss += batch_loss.item()
+        #train_loss += batch_loss.item()
 
         if args.fp16:
             with amp.scale_loss(batch_loss, optimizer) as scaled_loss:
@@ -233,17 +265,13 @@ if __name__ == '__main__':
 
             with torch.no_grad():
                 for n, p in net.named_parameters():
-                    if 'weight' in n.split('.'):
+                    if 'conv' in n.split('.'):
                         writer.add_scalar('L2norm/' + n, p.norm(2), global_step)
-                    elif 'scale' in n.split('.'):
-                        writer.add_scalar('scale/' + n, p.item(), global_step)
+                    #elif 'scale' in n.split('.'):
+                    #    writer.add_scalar('scale/' + n, p.item(), global_step)
                     # add scale here
         global_step += 1
-
-    epoch_time = time.time() - epoch_start_time
-    train_loss /= len(ds_train)
-
-    writer.add_scalar('Loss/train', train_loss, epoch + 1)
+        # epoch_time = time.time() - epoch_start_time
 
     '''
     images = inputs[:16].permute(0, 2, 3, 1) * c + c
@@ -271,11 +299,11 @@ if __name__ == '__main__':
     with open(logname, 'a') as logfile:
         logwriter = csv.writer(logfile, delimiter=',')
         logwriter.writerow(
-            [epoch, args.lr, np.round(train_loss, 4), np.round(val_loss, 4)])
+            [epoch, args.lr, np.round(trn_loss, 4), np.round(val_loss, 4)])
     
     if args.fp16:
-        save_amp_checkpoint(net, amp, optimizer, val_loss, train_loss, epoch, save_path, ckpt_name)
+        save_amp_checkpoint(net, amp, optimizer, val_loss, trn_loss, epoch, save_path, ckpt_name)
     else:
-        save_checkpoint(net, val_loss, train_loss, epoch, save_path, ckpt_name)
+        save_checkpoint(net, val_loss, trn_loss, epoch, save_path, ckpt_name)
 
     writer.close()

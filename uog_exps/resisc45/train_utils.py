@@ -20,3 +20,21 @@ def evaluate_loss_accuracy(net, dataset, loss, device):
         total_loss /= len(dataset)
     
     return accuracy.item(), total_loss
+
+
+def save_checkpoint(net, val_loss, trn_loss, epoch, logdir, model_string):
+    """Saves model weights at a particular <epoch> into folder
+    <logdir> with name <model_string>."""
+    print('Saving..')
+    state = {
+        'net': net,
+        'val_loss': val_loss,
+        'trn_loss': trn_loss,
+        'epoch': epoch,
+        'rng_state': torch.get_rng_state()
+    }
+    if not os.path.isdir(os.path.join(logdir, 'checkpoint/')):
+        os.mkdir(os.path.join(logdir, 'checkpoint/'))
+
+    torch.save(state, os.path.join(logdir, 'checkpoint/') +
+               model_string + '_epoch%d.ckpt' % epoch)
