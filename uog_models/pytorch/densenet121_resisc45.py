@@ -58,8 +58,22 @@ def preprocessing_fn(x: np.ndarray) -> np.ndarray:
         im_raw = image.array_to_img(x[i])
         im = image.img_to_array(im_raw.resize(shape))
         output.append(im)
-    output = preprocess_input_densenet121_resisc(np.array(output)).transpose(0, 3, 1, 2).astype('float32')  # from NHWC to NCHW
+    output = preprocess_input_densenet121_resisc(
+        np.array(output)).transpose(0, 3, 1, 2).astype('float32')  # from NHWC to NCHW
     return output
+
+
+def resisc_densenet121(model_kwargs):
+
+    model = models.densenet121(**model_kwargs)
+
+    # manually implement Keras 'include_top=False' option
+    return nn.Sequential(
+        model.features,
+        nn.AvgPool2d(kernel_size=7),
+        nn.Flatten(),
+        nn.Linear(1024, num_classes)
+    )
 
 
 # NOTE: PyTorchClassifier expects numpy input, not torch.Tensor input
@@ -67,25 +81,18 @@ def get_art_model(model_kwargs, wrapper_kwargs, weights_file=None):
 
     # set TORCH_HOME to prevent permission error accessing ~/.cache when pretrained=True
     os.environ['TORCH_HOME'] = paths.runtime_paths().saved_model_dir
-    model = models.densenet121(**model_kwargs)
 
-    # manually implement Keras 'include_top=False' option
-    model_newtop = nn.Sequential(
-        model.features,
-        nn.AvgPool2d(kernel_size=7),
-        nn.Flatten(),
-        nn.Linear(1024, num_classes),
-        nn.Softmax()
-    ).to(DEVICE)
+    model_pre_softmax = resisc_densenet121(**model_kwargs)
+    model = nn.Sequential(model_pre_softmax, nn.Softmax(dim=1)).to(DEVICE)
 
     if weights_file:
         #filepath = maybe_download_weights_from_s3(weights_file)
         checkpoint = torch.load(
             osp.join(paths.runtime_paths().saved_model_dir, weights_file), map_location=DEVICE)
-        model_newtop.load_state_dict(checkpoint)
+        model.load_state_dict(checkpoint)
 
     wrapped_model = PyTorchClassifier(
-        model_newtop,
+        model,
         loss=torch.nn.CrossEntropyLoss(),
         optimizer=torch.optim.Adam(
             model.parameters(), lr=0.001, betas=(0.9, 0.999), eps=1e-07, amsgrad=False),
