@@ -100,11 +100,11 @@ if __name__ == '__main__':
     arch += args.arch
 
     save_path = osp.join(
-        args.logdir, arch + 'opt-%s/lr%.e/wd%.e/bs%d/ep%d/seed%d/%s' % (
+        args.logdir, arch + '/%s/lr%.e/wd%.e/bs%d/ep%d/seed%d/%s' % (
             args.opt, args.lr, args.wd, args.bs, args.epochs, args.seed, gitcommit))
     print('Saving model to ', save_path)
 
-    ckpt_name = arch + 'opt-%s_lr%.e_wd%.e_bs%d_ep%d_seed%d' % (args.opt, args.lr, args.wd, args.bs, args.epochs, args.seed)
+    ckpt_name = arch + '_%s_lr%.e_wd%.e_bs%d_ep%d_seed%d' % (args.opt, args.lr, args.wd, args.bs, args.epochs, args.seed)
 
     # Logging stats
     result_folder = osp.join(save_path, 'results/')
@@ -204,6 +204,8 @@ if __name__ == '__main__':
         global_step = 0
 
     epoch = 0
+    train_loss = 0.
+    batches_per_epoch = len(ds_train) // args.epochs
     
     # begin main loop
     for batch, (x, y) in enumerate(ds_train):
@@ -216,9 +218,16 @@ if __name__ == '__main__':
             val_acc, val_loss = evaluate_test_metrics(net, loss_fn)
             print('Epoch [%d/%d], val acc %.4f, val loss %.4f, took %.2f sec, ' % (
                 (epoch, args.epochs, val_acc, val_loss, time.time() - eval_start_time)))
-            writer.add_scalar('Loss/val', val_loss, epoch)
-            writer.add_scalar('Acc/val', val_acc, epoch)
+            writer.add_scalar('EpochLoss/val', val_loss, epoch)
+            writer.add_scalar('EpochAcc/val', val_acc, epoch)
+            train_loss = train_loss / batches_per_epoch
+            writer.add_scalar('EpochLoss/train', train_loss, epoch)
             
+            with open(logname, 'a') as logfile:
+                logwriter = csv.writer(logfile, delimiter=',')
+                logwriter.writerow([epoch, args.lr, np.round(train_loss, 4), np.round(val_loss, 4)])
+
+            train_loss = 0. # reset train loss
             epoch += 1
             
         # evaluate train metrics less often (every other epoch)
@@ -229,8 +238,8 @@ if __name__ == '__main__':
             trn_acc, trn_loss = evaluate_train_metrics(net, loss_fn)
             print('Epoch [%d/%d], trn acc %.4f, trn loss %.4f, took %.2f sec, ' % (
                 (epoch, args.epochs, trn_acc, trn_loss, time.time() - eval_start_time)))
-            writer.add_scalar('Loss/train', trn_loss, epoch)
-            writer.add_scalar('Acc/train', trn_acc, epoch)
+            writer.add_scalar('OtherEpochLoss/train', trn_loss, epoch)
+            writer.add_scalar('OtherEpochAcc/train', trn_acc, epoch)
         
         # end per-epoch statistics
         net.train()
@@ -245,7 +254,7 @@ if __name__ == '__main__':
         #correct += (pred.argmax(dim=1) == y).sum()
         #total += len(y)
         batch_loss = loss_fn(pred, y)
-        #train_loss += batch_loss.item()
+        train_loss += batch_loss.item()
 
         if args.fp16:
             with amp.scale_loss(batch_loss, optimizer) as scaled_loss:
@@ -257,30 +266,14 @@ if __name__ == '__main__':
 
         if batch % 10 == 0:
             print('Batch [{}/{}], train loss: {:.4f}'
-                  .format(batch, len(ds_train) // args.epochs, batch_loss.item()))  #, train IoU: {:.4f}'
+                  .format(batch % batches_per_epoch, batches_per_epoch, batch_loss.item()))
             writer.add_scalar('Loss/train mini-batch', batch_loss.item(), global_step)
 
             with torch.no_grad():
                 for n, p in net.named_parameters():
                     if 'conv' in n.split('.'):
                         writer.add_scalar('L2norm/' + n, p.norm(2), global_step)
-                    #elif 'scale' in n.split('.'):
-                    #    writer.add_scalar('scale/' + n, p.item(), global_step)
-                    # add scale here
         global_step += 1
-        # epoch_time = time.time() - epoch_start_time
-
-    '''
-    images = inputs[:16].permute(0, 2, 3, 1) * c + c
-    images = images.permute(0, 3, 1, 2)
-
-    img_grid = torchvision.utils.make_grid(images)
-    sig_grid = torchvision.utils.make_grid(sig(pred[:16]))
-    lab_grid = torchvision.utils.make_grid(targets[:16].unsqueeze(dim=1).float())
-    writer.add_image('images', img_grid, epoch)
-    writer.add_image('predictions', sig_grid, epoch)
-    writer.add_image('labels', lab_grid, epoch)
-    '''
 
     if epoch % 10 == 0:
         #if val_loss < best_val_loss:
@@ -289,14 +282,6 @@ if __name__ == '__main__':
             save_amp_checkpoint(net, amp, optimizer, val_loss, train_loss, epoch, save_path, ckpt_name)
         else:
             save_checkpoint(net, val_loss, train_loss, epoch, save_path, ckpt_name)
-
-    print('Epoch [{}/{}], train loss: {:.4f}, val loss: {:.4f}, took {:.2f} s'
-          .format(epoch + 1, args.epochs, train_loss, val_loss, epoch_time))
-
-    with open(logname, 'a') as logfile:
-        logwriter = csv.writer(logfile, delimiter=',')
-        logwriter.writerow(
-            [epoch, args.lr, np.round(trn_loss, 4), np.round(val_loss, 4)])
     
     if args.fp16:
         save_amp_checkpoint(net, amp, optimizer, val_loss, trn_loss, epoch, save_path, ckpt_name)
