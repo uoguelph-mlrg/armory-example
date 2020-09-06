@@ -96,24 +96,21 @@ if __name__ == '__main__':
                                          'HEAD']).decode('ascii').strip()
 
     arch = ''
-    arch += 'pretrained_' if pretrained else ''
+    arch += 'pretrained_' if args.pretrained else ''
+    arch += args.arch
+
     save_path = osp.join(
-        args.logdir, arch + 'opt%s/lr%.e/wd%.e/bs%d/ep%d/seed%d/%s' % (args.opt, args.lr, args.wd,
-                                                                       args.bs,
-                                                                       args.epochs,
-                                                                       args.seed,
-                                                                       gitcommit))
+        args.logdir, arch + 'opt-%s/lr%.e/wd%.e/bs%d/ep%d/seed%d/%s' % (
+            args.opt, args.lr, args.wd, args.bs, args.epochs, args.seed, gitcommit))
     print('Saving model to ', save_path)
 
-    ckpt_name = args.arch + '_lr%.e_wd%.e_bs%d_ep%d_seed%d' % (args.lr, args.wd, args.bs, args.epochs, args.seed)
+    ckpt_name = arch + 'opt-%s_lr%.e_wd%.e_bs%d_ep%d_seed%d' % (args.opt, args.lr, args.wd, args.bs, args.epochs, args.seed)
 
     # Logging stats
     result_folder = osp.join(save_path, 'results/')
     if not osp.exists(result_folder):
         os.makedirs(result_folder)
 
-    #model_string = args.arch + '_bs%d' % args.bs + '_wd%.e' % args.wd + '_' + \
-    #args.sess + '_' + str(args.seed)
     logname = osp.join(result_folder, ckpt_name + '.csv')
 
     if not osp.exists(logname):
@@ -125,7 +122,7 @@ if __name__ == '__main__':
     ds_train = datasets.resisc45(
         split_type='train', 
         epochs=args.epochs, 
-        batch_size=args.bs, 
+        batch_size=args.bs,
         dataset_dir=args.dataroot,
         preprocessing_fn=preprocessing_fn,
         framework='numpy')
@@ -134,7 +131,7 @@ if __name__ == '__main__':
         
         ds_test = datasets.resisc45(
             split_type='test', epochs=1, 
-            batch_size=args.bs, 
+            batch_size=args.bs * 2, # can increase by factor 2 here because no_grad
             dataset_dir=args.dataroot,
             preprocessing_fn=preprocessing_fn,
             framework='numpy')
@@ -146,7 +143,7 @@ if __name__ == '__main__':
         
         ds_train_one_epoch = datasets.resisc45(
             split_type='train', epochs=1, 
-            batch_size=args.bs, 
+            batch_size=args.bs * 2, # can increase by factor 2 here because no_grad
             dataset_dir=args.dataroot,
             preprocessing_fn=preprocessing_fn,
             framework='numpy')
@@ -245,8 +242,8 @@ if __name__ == '__main__':
         x = torch.FloatTensor(x).to(device)
         y = torch.LongTensor(y).to(device)
         pred = net(x) # pre-softmax
-        correct += (pred.argmax(dim=1) == y).sum()
-        total += len(y)
+        #correct += (pred.argmax(dim=1) == y).sum()
+        #total += len(y)
         batch_loss = loss_fn(pred, y)
         #train_loss += batch_loss.item()
 
