@@ -206,7 +206,7 @@ if __name__ == '__main__':
     epoch = 0
     train_loss = 0.
     batches_per_epoch = len(ds_train) // args.epochs
-    increment_epoch = False
+    #increment_epoch = False
 
     # begin main loop
     for batch, (x, y) in enumerate(ds_train):
@@ -239,7 +239,8 @@ if __name__ == '__main__':
                 logwriter.writerow([epoch, args.lr, np.round(train_loss, 4), np.round(val_loss, 4)])
 
             train_loss = 0. # reset train loss
-            increment_epoch = True
+            #increment_epoch = True
+            epoch += 1
 
         # save checkpoints every ten epochs
         if epoch % 10 == 0:
@@ -247,6 +248,7 @@ if __name__ == '__main__':
             print('Saved ckpt %s at epoch %d' % (ckpt_name, epoch))
 
         # evaluate train metrics less often (every other epoch)
+        '''
         if epoch % 2 == 0:
             eval_start_time = time.time()
             net.eval()
@@ -255,10 +257,10 @@ if __name__ == '__main__':
                 (epoch, args.epochs, trn_acc, trn_loss, time.time() - eval_start_time)))
             writer.add_scalar('OtherEpochLoss/train', trn_loss, epoch)
             writer.add_scalar('OtherEpochAcc/train', trn_acc, epoch)
-
-        if increment_epoch:
-            increment_epoch = False
-            epoch += 1
+        '''
+        #if increment_epoch:
+        #    increment_epoch = False
+        #    epoch += 1
 
         # end per-epoch statistics
         net.train()
