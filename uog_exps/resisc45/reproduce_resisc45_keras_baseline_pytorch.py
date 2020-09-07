@@ -48,39 +48,39 @@ if __name__ == '__main__':
     # dataset, admin, checkpointing and hw details
     parser.add_argument('--dataroot', help='path to dataset', type=str,
                         default=paths.HostPaths().dataset_dir)
-    
+
     parser.add_argument('--logdir', help='directory to store checkpoints; \
                         if None, nothing will be saved')
-    
+
     parser.add_argument("--resume", default="", type=str,
                         help="path to latest checkpoint (default: none)")
-    
+
     parser.add_argument('--do_print', help="print ongoing training progress",
                         action="store_true")
-    
+
     parser.add_argument('--pretrained', help="pre-train model on ImageNet?", action="store_true")
-    
+
     parser.add_argument('--gpu', help='physical id of GPU to use')
-    
+
     parser.add_argument('--seed', help='random seed', type=int, default=1)
 
     # model arch and training meta-parameters
     parser.add_argument('-a', '--arch', metavar='ARCH', default='densenet121',
                         choices=model_names, help='model architecture: ' +
                         ' | '.join(model_names) + ' (default: fcn_resnet50)')
-    
+
     parser.add_argument('--opt', default='adam', choices=['adam', 'sgd'], help='optimizer')
-    
+
     parser.add_argument('--epochs', help='number of epochs to train for', type=int, default=1)
-    
+
     #parser.add_argument('--drop', help='epoch to first drop the initial \ learning rate', type=int, default=30)
-    
+
     parser.add_argument('--bs', help='SGD mini-batch size', type=int, default=32)
     parser.add_argument('--lr', help='initial learning rate', type=float, default=1e-3)
     parser.add_argument('--wd', help='weight decay regularization', type=float, default=0)
     parser.add_argument('--fp16', help='use apex to train with fp16 parameters', action="store_true")
     #parser.add_argument('--tag', help='custom tag to ID debug runs')
-    
+
     args = parser.parse_args()
 
     if args.gpu:
@@ -120,42 +120,42 @@ if __name__ == '__main__':
 
     # Prepare datasets
     ds_train = datasets.resisc45(
-        split_type='train', 
-        epochs=args.epochs, 
+        split_type='train',
+        epochs=args.epochs,
         batch_size=args.bs,
         dataset_dir=args.dataroot,
         preprocessing_fn=preprocessing_fn,
         framework='numpy')
-    
+
     def evaluate_test_metrics(net, loss_fn):
-        
+
         ds_test = datasets.resisc45(
-            split_type='test', epochs=1, 
+            split_type='test', epochs=1,
             batch_size=args.bs * 2, # can increase by factor 2 here because no_grad
             dataset_dir=args.dataroot,
             preprocessing_fn=preprocessing_fn,
             framework='numpy')
-        
+
         return evaluate_loss_accuracy(net, ds_test, loss_fn, device)
-    
-    
+
+
     def evaluate_train_metrics(net, loss_fn):
-        
+
         ds_train_one_epoch = datasets.resisc45(
-            split_type='train', epochs=1, 
+            split_type='train', epochs=1,
             batch_size=args.bs * 2, # can increase by factor 2 here because no_grad
             dataset_dir=args.dataroot,
             preprocessing_fn=preprocessing_fn,
             framework='numpy')
-        
+
         return evaluate_loss_accuracy(net, ds_train_one_epoch, loss_fn, device)
-        
-    
+
+
     def evaluate_adv_metrics(net, loss_fn):
-    
+
         ds_adv = adversarial_datasets.resisc45_adversarial_224x224(
             split_type="adversarial", epochs=1,
-            batch_size=args.bs,
+            batch_size=args.bs * 2, # can increase by factor 2 here because no_grad
             dataset_dir=args.dataroot,
             preprocessing_fn=preprocessing_fn,
             cache_dataset=True,
@@ -163,11 +163,11 @@ if __name__ == '__main__':
             clean_key="clean",
             adversarial_key="adversarial_univpatch",
             targeted=False)
-        
-        return evaluate_loss_accuracy(net, ds_adv, loss_fn, device)
-    
+
+        return evaluate_loss_accuracy(net, ds_adv, loss_fn, device, adv=True)
+
     writer = SummaryWriter(save_path, flush_secs=30)
-    
+
     print("=> creating model '{}'".format(args.arch))
     model_kwargs = {"pretrained" : args.pretrained, "progress" : False}
     net = resisc_densenet121(model_kwargs).to(device)
@@ -206,33 +206,48 @@ if __name__ == '__main__':
     epoch = 0
     train_loss = 0.
     batches_per_epoch = len(ds_train) // args.epochs
-    
+    increment_epoch = False
+
     # begin main loop
     for batch, (x, y) in enumerate(ds_train):
-        
+
         # evaluate performance metrics once per epoch at the beginning of every epoch
-        if batch % (len(ds_train) // args.epochs) == 0:
-            
+        if batch % batches_per_epoch == 0:
+
             eval_start_time = time.time()
             net.eval()
             val_acc, val_loss = evaluate_test_metrics(net, loss_fn)
             print('Epoch [%d/%d], val acc %.4f, val loss %.4f, took %.2f sec, ' % (
                 (epoch, args.epochs, val_acc, val_loss, time.time() - eval_start_time)))
+
+            adv_acc, adv_loss = evaluate_adv_metrics(net, loss_fn)
+            print('Epoch [%d/%d], adv acc %.4f, adv loss %.4f, took %.2f sec, ' % (
+                (epoch, args.epochs, adv_acc, adv_loss, time.time() - eval_start_time)))
+
+            # validation
             writer.add_scalar('EpochLoss/val', val_loss, epoch)
             writer.add_scalar('EpochAcc/val', val_acc, epoch)
+            # adversarial
+            writer.add_scalar('EpochLoss/adv', adv_loss, epoch)
+            writer.add_scalar('EpochAcc/adv', adv_acc, epoch)
+
             train_loss = train_loss / batches_per_epoch
             writer.add_scalar('EpochLoss/train', train_loss, epoch)
-            
+
             with open(logname, 'a') as logfile:
                 logwriter = csv.writer(logfile, delimiter=',')
                 logwriter.writerow([epoch, args.lr, np.round(train_loss, 4), np.round(val_loss, 4)])
 
             train_loss = 0. # reset train loss
-            epoch += 1
-            
+            increment_epoch = True
+
+        # save checkpoints every ten epochs
+        if epoch % 10 == 0:
+            save_checkpoint(net, val_acc, adv_acc, epoch, save_path, ckpt_name)
+            print('Saved ckpt %s at epoch %d' % (ckpt_name, epoch))
+
         # evaluate train metrics less often (every other epoch)
-        if batch % (len(ds_train) // (args.epochs // 2)) == 0:
-            
+        if epoch % 2 == 0:
             eval_start_time = time.time()
             net.eval()
             trn_acc, trn_loss = evaluate_train_metrics(net, loss_fn)
@@ -240,14 +255,18 @@ if __name__ == '__main__':
                 (epoch, args.epochs, trn_acc, trn_loss, time.time() - eval_start_time)))
             writer.add_scalar('OtherEpochLoss/train', trn_loss, epoch)
             writer.add_scalar('OtherEpochAcc/train', trn_acc, epoch)
-        
+
+        if increment_epoch:
+            increment_epoch = False
+            epoch += 1
+
         # end per-epoch statistics
         net.train()
-        
+
         #lr = adjust_learning_rate(optimizer, epoch, args.drop, args.lr)
 
         optimizer.zero_grad() # reset gradients
-        
+
         x = torch.FloatTensor(x).to(device)
         y = torch.LongTensor(y).to(device)
         pred = net(x) # pre-softmax
@@ -265,8 +284,8 @@ if __name__ == '__main__':
         optimizer.step() # update parameters
 
         if batch % 10 == 0:
-            print('Batch [{}/{}], train loss: {:.4f}'
-                  .format(batch % batches_per_epoch, batches_per_epoch, batch_loss.item()))
+            print('Epoch {} Batch [{}/{}], train loss: {:.4f}'
+                  .format(epoch, batch % batches_per_epoch, batches_per_epoch, batch_loss.item()))
             writer.add_scalar('Loss/train mini-batch', batch_loss.item(), global_step)
 
             with torch.no_grad():
@@ -274,18 +293,5 @@ if __name__ == '__main__':
                     if 'conv' in n.split('.'):
                         writer.add_scalar('L2norm/' + n, p.norm(2), global_step)
         global_step += 1
-
-    if epoch % 10 == 0:
-        #if val_loss < best_val_loss:
-        #    best_val_loss = val_loss
-        if args.fp16:
-            save_amp_checkpoint(net, amp, optimizer, val_loss, train_loss, epoch, save_path, ckpt_name)
-        else:
-            save_checkpoint(net, val_loss, train_loss, epoch, save_path, ckpt_name)
-    
-    if args.fp16:
-        save_amp_checkpoint(net, amp, optimizer, val_loss, trn_loss, epoch, save_path, ckpt_name)
-    else:
-        save_checkpoint(net, val_loss, trn_loss, epoch, save_path, ckpt_name)
 
     writer.close()
