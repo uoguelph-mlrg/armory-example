@@ -31,17 +31,18 @@ from armory.data import adversarial_datasets
 
 import sys
 sys.path.append("../../")
-from uog_models.pytorch.densenet121_resisc45 import mean_std, preprocessing_fn, resisc_densenet121
 
 from train_utils import evaluate_loss_accuracy, save_checkpoint
 
 if __name__ == '__main__':
 
+    '''
     model_names = sorted(
         name for name in models.__dict__
         if name.islower() and not name.startswith("__")
         and callable(models.__dict__[name])
         )
+    '''
 
     parser = argparse.ArgumentParser()
 
@@ -66,8 +67,7 @@ if __name__ == '__main__':
 
     # model arch and training meta-parameters
     parser.add_argument('-a', '--arch', metavar='ARCH', default='densenet121',
-                        choices=model_names, help='model architecture: ' +
-                        ' | '.join(model_names) + ' (default: fcn_resnet50)')
+                        choices=['densenet121', 'vgg11'], help='model architecture')
 
     parser.add_argument('--opt', default='adam', choices=['adam', 'sgd'], help='optimizer')
 
@@ -105,6 +105,16 @@ if __name__ == '__main__':
     print('Saving model to ', save_path)
 
     ckpt_name = arch + '_%s_lr%.e_wd%.e_bs%d_ep%d_seed%d' % (args.opt, args.lr, args.wd, args.bs, args.epochs, args.seed)
+    
+    print("=> creating model '{}'".format(args.arch))
+    model_kwargs = {"pretrained" : args.pretrained, "progress" : False}
+                                 
+    if args.arch == 'densenet121':                             
+        from uog_models.pytorch.densenet121_resisc45 import mean_std, preprocessing_fn, resisc_densenet121
+        net = resisc_densenet121(model_kwargs).to(device)
+    else:
+        from uog_models.pytorch.vgg11_resisc45 import mean_std, preprocessing_fn, resisc_vgg11
+        net = resisc_vgg11(model_kwargs).to(device)
 
     # Logging stats
     result_folder = osp.join(save_path, 'results/')
@@ -167,10 +177,6 @@ if __name__ == '__main__':
         return evaluate_loss_accuracy(net, ds_adv, loss_fn, device, adv=True)
 
     writer = SummaryWriter(save_path, flush_secs=30)
-
-    print("=> creating model '{}'".format(args.arch))
-    model_kwargs = {"pretrained" : args.pretrained, "progress" : False}
-    net = resisc_densenet121(model_kwargs).to(device)
 
     # Prepare training procedure
     if args.opt == 'adam':
