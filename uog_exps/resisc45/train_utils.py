@@ -30,6 +30,7 @@ def save_checkpoint(net, val_acc, adv_acc, epoch, logdir, model_string):
     """Saves model weights at a particular <epoch> into folder
     <logdir> with name <model_string>."""
     print('Saving..')
+    """
     state = {
         'net': net,
         'val_acc': val_acc,
@@ -37,8 +38,21 @@ def save_checkpoint(net, val_acc, adv_acc, epoch, logdir, model_string):
         'epoch': epoch,
         'rng_state': torch.get_rng_state()
     }
+    """
     if not os.path.isdir(os.path.join(logdir, 'checkpoint/')):
         os.mkdir(os.path.join(logdir, 'checkpoint/'))
 
-    torch.save(state, os.path.join(logdir, 'checkpoint/') +
-               model_string + '_epoch%d.ckpt' % epoch)
+    # confirmed loading working in armory
+    torch.save(net.state_dict(), os.path.join(logdir, 'checkpoint/') +
+               model_string + '_epoch%d.pt' % epoch)
+    
+    
+def adjust_learning_rate(optimizer, epoch, drop, base_learning_rate):
+    """decrease the learning rate at <drop> epoch"""
+    lr = base_learning_rate
+    if epoch >= drop:
+        lr /= 10
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
+
+    return lr    

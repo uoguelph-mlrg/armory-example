@@ -32,7 +32,7 @@ from armory.data import adversarial_datasets
 import sys
 sys.path.append("../../")
 
-from train_utils import evaluate_loss_accuracy, save_checkpoint
+from train_utils import *
 
 if __name__ == '__main__':
 
@@ -66,20 +66,21 @@ if __name__ == '__main__':
     parser.add_argument('--seed', help='random seed', type=int, default=1)
 
     # model arch and training meta-parameters
-    parser.add_argument('-a', '--arch', metavar='ARCH', default='densenet121',
-                        choices=['densenet121', 'vgg11'], help='model architecture')
+    parser.add_argument('--arch', metavar='ARCH', default='vgg11',
+                        choices=['densenet121', 'vgg11', 'vgg11bn'], help='model architecture')
 
     parser.add_argument('--opt', default='adam', choices=['adam', 'sgd'], help='optimizer')
 
-    parser.add_argument('--epochs', help='number of epochs to train for', type=int, default=1)
+    parser.add_argument('--epochs', help='number of epochs to train for', type=int, default=60)
 
-    #parser.add_argument('--drop', help='epoch to first drop the initial \ learning rate', type=int, default=30)
+    parser.add_argument('--drop', help='epoch to first drop the initial learning rate', type=int, default=30)
+
+    parser.add_argument('--save_every', help='how often to checkpoint (in epochs)', type=int, default=10)
 
     parser.add_argument('--bs', help='SGD mini-batch size', type=int, default=32)
-    parser.add_argument('--lr', help='initial learning rate', type=float, default=1e-3)
+    parser.add_argument('--lr', help='initial learning rate', type=float, default=1e-2)
     parser.add_argument('--wd', help='weight decay regularization', type=float, default=0)
     parser.add_argument('--fp16', help='use apex to train with fp16 parameters', action="store_true")
-    #parser.add_argument('--tag', help='custom tag to ID debug runs')
 
     args = parser.parse_args()
 
@@ -100,21 +101,27 @@ if __name__ == '__main__':
     arch += args.arch
 
     save_path = osp.join(
-        args.logdir, arch + '/%s/lr%.e/wd%.e/bs%d/ep%d/seed%d/%s' % (
-            args.opt, args.lr, args.wd, args.bs, args.epochs, args.seed, gitcommit))
+        args.logdir, arch + '/%s/lr%.e/wd%.e/bs%d/ep%d/drop%d/seed%d/%s' % (
+            args.opt, args.lr, args.wd, args.bs, args.epochs, args.drop, args.seed, gitcommit))
     print('Saving model to ', save_path)
 
-    ckpt_name = arch + '_%s_lr%.e_wd%.e_bs%d_ep%d_seed%d' % (args.opt, args.lr, args.wd, args.bs, args.epochs, args.seed)
-    
+    ckpt_name = arch + '_%s_lr%.e_wd%.e_bs%d_ep%d_drop%d_seed%d' % (
+        args.opt, args.lr, args.wd, args.bs, args.epochs, args.drop, args.seed)
+
     print("=> creating model '{}'".format(args.arch))
     model_kwargs = {"pretrained" : args.pretrained, "progress" : False}
-                                 
-    if args.arch == 'densenet121':                             
+
+    if args.arch == 'densenet121':
         from uog_models.pytorch.densenet121_resisc45 import mean_std, preprocessing_fn, resisc_densenet121
         net = resisc_densenet121(model_kwargs).to(device)
-    else:
+
+    elif args.arch == 'vgg11':
         from uog_models.pytorch.vgg11_resisc45 import mean_std, preprocessing_fn, resisc_vgg11
         net = resisc_vgg11(model_kwargs).to(device)
+
+    elif args.arch == 'vgg11bn':
+        from uog_models.pytorch.vgg11bn_resisc45 import mean_std, preprocessing_fn, resisc_vgg11bn
+        net = resisc_vgg11bn(model_kwargs).to(device)
 
     # Logging stats
     result_folder = osp.join(save_path, 'results/')
@@ -190,9 +197,6 @@ if __name__ == '__main__':
     if args.fp16:
         net, optimizer = amp.initialize(net, optimizer, opt_level='O3')
 
-    #save_checkpoint(net, 100, 100, 0, save_path, ckpt_name)
-    #save_amp_checkpoint(net, amp, optimizer, 100, 100, 0, save_path, ckpt_name)
-
     # Optionally resume from existing checkpoint
     if args.resume:
         if osp.isfile(args.resume):
@@ -212,7 +216,6 @@ if __name__ == '__main__':
     epoch = 0
     train_loss = 0.
     batches_per_epoch = len(ds_train) // args.epochs
-    #increment_epoch = False
 
     # begin main loop
     for batch, (x, y) in enumerate(ds_train):
@@ -230,6 +233,8 @@ if __name__ == '__main__':
             print('Epoch [%d/%d], adv acc %.4f, adv loss %.4f, took %.2f sec, ' % (
                 (epoch, args.epochs, adv_acc, adv_loss, time.time() - eval_start_time)))
 
+            lr = adjust_learning_rate(optimizer, epoch, args.drop, args.lr)
+
             # validation
             writer.add_scalar('EpochLoss/val', val_loss, epoch)
             writer.add_scalar('EpochAcc/val', val_acc, epoch)
@@ -242,20 +247,18 @@ if __name__ == '__main__':
 
             with open(logname, 'a') as logfile:
                 logwriter = csv.writer(logfile, delimiter=',')
-                logwriter.writerow([epoch, args.lr, np.round(train_loss, 4), np.round(val_loss, 4)])
+                logwriter.writerow([epoch, lr, np.round(train_loss, 4), np.round(val_loss, 4)])
 
             train_loss = 0. # reset train loss
-            #increment_epoch = True
             epoch += 1
 
         # save checkpoints every ten epochs
-        if epoch % 10 == 0:
+        if batch % (args.save_every * batches_per_epoch) == 0:
             save_checkpoint(net, val_acc, adv_acc, epoch, save_path, ckpt_name)
             print('Saved ckpt %s at epoch %d' % (ckpt_name, epoch))
 
         # evaluate train metrics less often (every other epoch)
-        '''
-        if epoch % 2 == 0:
+        if batch % (10 * batches_per_epoch) == 0:
             eval_start_time = time.time()
             net.eval()
             trn_acc, trn_loss = evaluate_train_metrics(net, loss_fn)
@@ -263,15 +266,9 @@ if __name__ == '__main__':
                 (epoch, args.epochs, trn_acc, trn_loss, time.time() - eval_start_time)))
             writer.add_scalar('OtherEpochLoss/train', trn_loss, epoch)
             writer.add_scalar('OtherEpochAcc/train', trn_acc, epoch)
-        '''
-        #if increment_epoch:
-        #    increment_epoch = False
-        #    epoch += 1
 
         # end per-epoch statistics
         net.train()
-
-        #lr = adjust_learning_rate(optimizer, epoch, args.drop, args.lr)
 
         optimizer.zero_grad() # reset gradients
 
@@ -298,7 +295,7 @@ if __name__ == '__main__':
 
             with torch.no_grad():
                 for n, p in net.named_parameters():
-                    if 'conv' in n.split('.'):
+                    if 'weight' in n.split('.'):
                         writer.add_scalar('L2norm/' + n, p.norm(2), global_step)
         global_step += 1
 

@@ -1,5 +1,5 @@
 """
-DenseNet121 CNN model for 244x244x3 image classification
+VGG-11 CNN model for 244x244x3 image classification
 
 Model contributed by: AngusG, adapted from armory pytorch ResNet50 example and
 keras densenet121_resisc45 example model.
@@ -12,13 +12,11 @@ import torch
 import torch.nn as nn
 from torchvision import models
 
-from tensorflow.keras.preprocessing import image
-
 # AngusG for loading weights
 import os
 import os.path as osp
 from armory import paths
-#from armory.data.utils import maybe_download_weights_from_s3
+from tensorflow.keras.preprocessing import image
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +38,7 @@ def mean_std():
     return resisc_mean, resisc_std
 
 
-def preprocess_input_densenet121_resisc(img):
+def preprocess_input_resisc(img):
     # Model was trained with Caffe preprocessing on the images
     # load the mean and std of the [0,1] normalized dataset
     # Normalize images: divide by 255 for [0,1] range
@@ -58,7 +56,7 @@ def preprocessing_fn(x: np.ndarray) -> np.ndarray:
         im_raw = image.array_to_img(x[i])
         im = image.img_to_array(im_raw.resize(shape))
         output.append(im)
-    output = preprocess_input_densenet121_resisc(
+    output = preprocess_input_resisc(
         np.array(output)).transpose(0, 3, 1, 2).astype('float32')  # from NHWC to NCHW
     return output
 
@@ -82,14 +80,13 @@ def get_art_model(model_kwargs, wrapper_kwargs, weights_file=None):
     # set TORCH_HOME to prevent permission error accessing ~/.cache when pretrained=True
     os.environ['TORCH_HOME'] = paths.runtime_paths().saved_model_dir
 
-    model_pre_softmax = resisc_densenet121(**model_kwargs)
+    model_pre_softmax = resisc_vgg11(model_kwargs)
     model = nn.Sequential(model_pre_softmax, nn.Softmax(dim=1)).to(DEVICE)
 
     if weights_file:
-        #filepath = maybe_download_weights_from_s3(weights_file)
         checkpoint = torch.load(
             osp.join(paths.runtime_paths().saved_model_dir, weights_file), map_location=DEVICE)
-        model.load_state_dict(checkpoint)
+        model_pre_softmax.load_state_dict(checkpoint)
 
     wrapped_model = PyTorchClassifier(
         model,
