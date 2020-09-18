@@ -67,7 +67,7 @@ if __name__ == '__main__':
 
     # model arch and training meta-parameters
     parser.add_argument('--arch', metavar='ARCH', default='vgg11',
-                        choices=['densenet121', 'vgg11', 'vgg11bn'], help='model architecture')
+                        choices=['densenet121', 'vgg11', 'vgg11bn', 'vgg16', 'vgg16bn'], help='model architecture')
 
     parser.add_argument('--opt', default='adam', choices=['adam', 'sgd'], help='optimizer')
 
@@ -119,9 +119,17 @@ if __name__ == '__main__':
         from uog_models.pytorch.vgg11_resisc45 import mean_std, preprocessing_fn, resisc_vgg11
         net = resisc_vgg11(model_kwargs).to(device)
 
+    elif args.arch == 'vgg16':
+        from uog_models.pytorch.vgg16_resisc45 import mean_std, preprocessing_fn, resisc_vgg16
+        net = resisc_vgg16(model_kwargs).to(device)
+
     elif args.arch == 'vgg11bn':
         from uog_models.pytorch.vgg11bn_resisc45 import mean_std, preprocessing_fn, resisc_vgg11bn
         net = resisc_vgg11bn(model_kwargs).to(device)
+
+    elif args.arch == 'vgg16bn':
+        from uog_models.pytorch.vgg16bn_resisc45 import mean_std, preprocessing_fn, resisc_vgg16bn
+        net = resisc_vgg16bn(model_kwargs).to(device)
 
     # Logging stats
     result_folder = osp.join(save_path, 'results/')
