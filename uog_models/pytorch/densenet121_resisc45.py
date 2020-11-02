@@ -80,7 +80,7 @@ def get_art_model(model_kwargs, wrapper_kwargs, weights_file=None):
     # set TORCH_HOME to prevent permission error accessing ~/.cache when pretrained=True
     os.environ['TORCH_HOME'] = paths.runtime_paths().saved_model_dir
 
-    model_pre_softmax = resisc_densenet121(**model_kwargs)
+    model_pre_softmax = resisc_densenet121(model_kwargs)
     model = nn.Sequential(model_pre_softmax, nn.Softmax(dim=1)).to(DEVICE)
 
     if weights_file:

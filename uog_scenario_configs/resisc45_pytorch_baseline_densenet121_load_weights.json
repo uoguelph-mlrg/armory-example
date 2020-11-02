@@ -29,16 +29,16 @@
         ]
     },
     "model": {
-        "fit": true,
+        "fit": false,
         "fit_kwargs": {
-            "nb_epochs": 11
+            "nb_epochs": 10
         },
         "model_kwargs": {
             "pretrained" : false
         },
         "module": "uog_models.pytorch.densenet121_resisc45",
         "name": "get_art_model",
-        "weights_file": "uog_models_pytorch_densenet121_resisc45_epochs10.pth.model",
+        "weights_file": "pretrained_densenet121_sgd_lr1e-02_wd0e+00_bs32_ep60_drop30_seed1_epoch51.pt",
         "wrapper_kwargs": {}
     },
     "scenario": {
@@ -47,7 +47,7 @@
         "name": "ImageClassificationTask"
     },
     "sysconfig": {
-        "docker_image": "twosixarmory/pytorch:0.9.1",
+        "docker_image": "twosixarmory/pytorch:0.10.0",
         "external_github_repo": null,
         "gpus": "0",
         "output_dir": null,
